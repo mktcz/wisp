@@ -1,0 +1,15 @@
+# wisp.toml - Wisp configuration file
+
+# The main API server
+[api]
+  run_cmd = "/tmp/api-server"
+  build_cmd = "go build -o /tmp/api-server ./api"
+  watch_dir = "./api"
+  env = { PORT = "8080", DB_URL = "postgres://postgres:postgres@localhost:5432/postgres" }
+
+# A background task processor
+[worker]
+  run_cmd = "/tmp/worker"
+  build_cmd = "go build -o /tmp/worker ./worker"
+  watch_dir = "./worker"
+  env = { QUEUE_PROVIDER = "redis" }
