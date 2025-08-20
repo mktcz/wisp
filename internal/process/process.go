@@ -97,13 +97,29 @@ func (m *Manager) Restart() error {
 		}
 
 		// Make the built binary executable
-		if m.app.Bin != "" {
-			if err := os.Chmod(m.app.Bin, 0755); err != nil {
-				log.Printf("[%s] Warning: failed to make binary executable: %v", m.app.Name, err)
+		// Try to extract the output path from the build command if Bin is not set
+		binaryPath := m.app.Bin
+		if binaryPath == "" {
+			// Try to extract from build command (e.g., "go build -o /path/to/binary")
+			binaryPath = extractOutputPath(buildCmd)
+			if binaryPath != "" {
+				log.Printf("[%s] Extracted binary path from build command: %s", m.app.Name, binaryPath)
+			}
+		} else {
+			log.Printf("[%s] Using configured binary path: %s", m.app.Name, binaryPath)
+		}
+		
+		if binaryPath != "" {
+			if err := os.Chmod(binaryPath, 0755); err != nil {
+				log.Printf("[%s] Warning: failed to make binary executable at %s: %v", m.app.Name, binaryPath, err)
+			} else {
+				log.Printf("[%s] Set executable permissions on %s", m.app.Name, binaryPath)
 			}
 			if m.app.CleanOnExit {
-				m.tmpFiles = append(m.tmpFiles, m.app.Bin)
+				m.tmpFiles = append(m.tmpFiles, binaryPath)
 			}
+		} else {
+			log.Printf("[%s] Warning: no binary path found to set permissions", m.app.Name)
 		}
 	}
 
@@ -368,4 +384,16 @@ func (m *Manager) IsRunning() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.running
+}
+
+// extractOutputPath tries to extract the output file path from a build command
+// For example: "go build -o /tmp/binary ./cmd/app" returns "/tmp/binary"
+func extractOutputPath(buildCmd string) string {
+	parts := strings.Fields(buildCmd)
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] == "-o" {
+			return parts[i+1]
+		}
+	}
+	return ""
 }
