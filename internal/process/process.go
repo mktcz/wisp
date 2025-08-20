@@ -96,8 +96,14 @@ func (m *Manager) Restart() error {
 			log.Printf("[%s] Build successful", m.app.Name)
 		}
 
-		if m.app.Bin != "" && m.app.CleanOnExit {
-			m.tmpFiles = append(m.tmpFiles, m.app.Bin)
+		// Make the built binary executable
+		if m.app.Bin != "" {
+			if err := os.Chmod(m.app.Bin, 0755); err != nil {
+				log.Printf("[%s] Warning: failed to make binary executable: %v", m.app.Name, err)
+			}
+			if m.app.CleanOnExit {
+				m.tmpFiles = append(m.tmpFiles, m.app.Bin)
+			}
 		}
 	}
 
