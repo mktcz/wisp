@@ -27,7 +27,7 @@ func AnalyzeProject(dir string) (*ProjectStructure, error) {
 
 	project := &ProjectStructure{
 		Name:      filepath.Base(dir),
-		BuildDir:  "/tmp",
+		BuildDir:  "./tmp", // This will be translated by runner at runtime
 		WatchDirs: []string{},
 	}
 

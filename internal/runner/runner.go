@@ -5,22 +5,25 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/mktcz/wisp/internal/config"
 	"github.com/mktcz/wisp/internal/process"
+	"github.com/mktcz/wisp/internal/session"
 	"github.com/mktcz/wisp/internal/watcher"
 )
 
 type Runner struct {
-	config    *config.Config
-	managers  map[string]*process.Manager
-	watchers  map[string]*watcher.Watcher
-	mu        sync.RWMutex
-	done      chan struct{}
-	interrupt chan os.Signal
+	config     *config.Config
+	managers   map[string]*process.Manager
+	watchers   map[string]*watcher.Watcher
+	sessionDir string
+	mu         sync.RWMutex
+	done       chan struct{}
+	interrupt  chan os.Signal
 }
 
 func New(cfg *config.Config) *Runner {
@@ -34,6 +37,13 @@ func New(cfg *config.Config) *Runner {
 }
 
 func (r *Runner) Run(appNames ...string) error {
+	// Generate session directory for this run
+	sessionDir, err := session.GenerateSessionDir()
+	if err != nil {
+		return fmt.Errorf("failed to create session directory: %w", err)
+	}
+	r.sessionDir = sessionDir
+
 	appsToRun := make(map[string]*config.App)
 
 	if len(appNames) > 0 {
@@ -43,11 +53,18 @@ func (r *Runner) Run(appNames ...string) error {
 			if !exists {
 				return fmt.Errorf("app '%s' not found in configuration", name)
 			}
-			appsToRun[name] = app
+			// Create a copy of the app config with translated paths
+			appCopy := *app
+			r.translatePaths(&appCopy)
+			appsToRun[name] = &appCopy
 		}
 	} else {
-
-		appsToRun = r.config.Apps
+		// Copy all apps with translated paths
+		for name, app := range r.config.Apps {
+			appCopy := *app
+			r.translatePaths(&appCopy)
+			appsToRun[name] = &appCopy
+		}
 	}
 
 	if len(appsToRun) == 0 {
@@ -212,8 +229,48 @@ func (r *Runner) Shutdown() {
 		log.Println("Warning: Shutdown timeout exceeded")
 	}
 
+	// Clean up process artifacts
 	for _, m := range managers {
 		m.CleanUp()
+	}
+
+	// Clean up session directories
+	r.cleanupSessionDirectories()
+}
+
+// translatePaths converts relative ./tmp paths to session directory paths
+func (r *Runner) translatePaths(app *config.App) {
+	if r.sessionDir == "" {
+		return
+	}
+	
+	// Translate build command paths
+	if strings.Contains(app.Cmd, "./tmp/") {
+		app.Cmd = strings.ReplaceAll(app.Cmd, "./tmp/", r.sessionDir+"/")
+	}
+	if strings.Contains(app.BuildCmd, "./tmp/") {
+		app.BuildCmd = strings.ReplaceAll(app.BuildCmd, "./tmp/", r.sessionDir+"/")
+	}
+	
+	// Translate binary path
+	if strings.HasPrefix(app.Bin, "./tmp/") {
+		app.Bin = strings.Replace(app.Bin, "./tmp/", r.sessionDir+"/", 1)
+	}
+	
+	// Translate tmp_dir
+	if app.TmpDir == "./tmp" {
+		app.TmpDir = r.sessionDir
+	}
+}
+
+func (r *Runner) cleanupSessionDirectories() {
+	// Clean up the session directory if it exists
+	if r.sessionDir != "" {
+		if err := session.CleanupSessionDir(r.sessionDir); err != nil {
+			log.Printf("Warning: Failed to clean up session directory %s: %v", r.sessionDir, err)
+		} else {
+			log.Printf("Cleaned up session directory: %s", r.sessionDir)
+		}
 	}
 }
 
